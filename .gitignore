@@ -1,3 +1,8 @@
+
+init.tcl
+*.tmp
+target.xml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
