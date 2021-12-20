@@ -20,16 +20,8 @@ import select
 import traceback
 import struct
 
-import ctypes
-rv8 = ctypes.CDLL('bin/librv8.' + ('so' if os.name == 'posix' else 'dll'))
-rv8.rv8Disasm.restype = ctypes.c_char_p
-# Arguments: (data, len, pc, gp_reg)
-rv8.rv8Disasm.argtypes = (ctypes.c_char_p, ctypes.c_uint64,
-                          ctypes.c_uint64, ctypes.c_uint64)
 
 # The Client of the GDB RSP Protocol
-
-
 class RSPClient():
 
     def __init__(self, ui) -> None:
@@ -60,7 +52,7 @@ class RSPClient():
         with open('target.xml', 'wb') as f:
             f.write(xml)
         self._ui.onTargetXmlUpdated(xml)
-        self._ui.onStateUpdated(self.rspCall(b'?'))
+        self._ui.onStateUpdated('paused')
         return True
 
     def disconnect(self):
@@ -119,8 +111,9 @@ class RSPClient():
             pkt = pkt[pos2+1:]
             if len(pkt) >= 3:
                 if pkt[0] == ord('T'):
-                    newState = b'S' + pkt[1:]
-                    self._ui.onStateUpdated(newState)
+                    print('Trap:', pkt)
+                    newState = b'T' + pkt[1:]
+                    self._ui.onStateUpdated('paused')
                     continue
                 if pkt[0] == ord('O'):
                     # Print log messages
@@ -212,7 +205,7 @@ class RSPClient():
 
     def write(self, addr, data):
         data = hexlify(data)
-        return self.rspCall(b'M%x,%x:%s' % (addr, len(data) // 2, data)) == b'OK'
+        return self.rspCall(b'M%x,%x:%s' % (addr, len(data) // 2, data))
 
     def _writeUInt(self, addr, uint: int, size):
         return self.write(addr, uint.to_bytes(size, byteorder='little'))
@@ -247,7 +240,7 @@ class RSPClient():
     def go(self):
         # Continues execution of the target program
         self.rspCall(b'vCont;c', waitForResp=False)
-        self._ui.onStateUpdated(b'S00')
+        self._ui.onStateUpdated('running')
         return True
     
     def step(self):
@@ -266,7 +259,7 @@ class RSPClient():
     def reset(self, halt = True):
         self.monitorCmd(b'reset halt')
         time.sleep(1)
-        self._ui.onStateUpdated(self.rspCall('?'))
+        self._ui.onStateUpdated('paused')
     
     # Poll the server for current status
     # Must be called periodically
@@ -285,6 +278,18 @@ class RSPClient():
 
     def getOneReg(self, regID):
         return self.rspCall('p%02x' % regID)
+    
+    def _getTypeID(self, type):
+        return {'soft':0, 'hard':1, 'read':2, 'write':3, 'access':4}[type]
+
+    def bpadd(self, addr, type='soft', size = 4):
+        type = self._getTypeID(type)
+        return self.rspCall(b'Z%x,%x,%x' % (type, addr, size))
+
+    def bpdel(self, addr, type='soft', size = 4):
+        type = self._getTypeID(type)
+        return self.rspCall(b'z%x,%x,%x' % (type, addr, size))
+    
 
 uiConfig = {
     'host': '127.0.0.1',
@@ -324,7 +329,8 @@ class UIInterface():
 
     def onStateUpdated(self, newState):
         print("State updated:", newState)
-        isPaused = False if newState == b'S00' else True
+        isPaused = newState == 'paused'
+        isConnected = (newState != None)
         self.isPaused = isPaused
         btnPause.setText('Go' if isPaused else 'Pause')
         text = 'Paused' if isPaused else 'Running'
@@ -372,7 +378,7 @@ class UIInterface():
         with open('disasm.tmp', 'wb') as f:
             f.write(data)
         args = ['--adjust-vma', '0x%x' % addr, '-m', 'riscv', '-b', 'binary', '-D', 'disasm.tmp']
-        # Start bin\riscv64-unknown-elf-objdump.exe and read stdout
+        # Start bin\riscv64-unknown-elf-objdump.exe and read stdout 
         p = subprocess.Popen(['bin\\riscv64-unknown-elf-objdump.exe'] + args, stdout=subprocess.PIPE)
         # Wait for the process to finish
         p.wait()

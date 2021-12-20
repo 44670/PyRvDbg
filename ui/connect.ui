@@ -23,7 +23,7 @@
       <item row="4" column="0">
        <widget class="QLabel" name="label_2">
         <property name="text">
-         <string>Hint: Edit init.tcl to change the debug target settings.</string>
+         <string>Hint: Edit init.tcl to configure for the debug target.</string>
         </property>
        </widget>
       </item>
